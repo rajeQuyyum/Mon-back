@@ -3,23 +3,28 @@ const mongoose = require("mongoose");
 
 const FixedDepositSchema = new mongoose.Schema(
   {
-    amount: { type: Number, required: true }, // principal
-    termMonths: { type: Number, required: true }, // e.g 3,6,12
-    rate: { type: Number, required: true }, // e.g 0.055
+    amount: { type: Number, required: true },
+    termMonths: { type: Number, required: true },
+    rate: { type: Number, required: true },
     startDate: { type: Date, default: Date.now },
     maturityDate: { type: Date, required: true },
-    status: { type: String, enum: ["active", "withdrawn", "reset"], default: "active" },
+    status: {
+      type: String,
+      enum: ["active", "withdrawn", "reset"],
+      default: "active",
+    },
     expectedInterest: { type: Number, default: 0 },
     totalAtMaturity: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
 
+
 const EmployeeSchema = new mongoose.Schema({
   name: String,
   email: String,
   password: String,
-
+  fixedDeposits: [FixedDepositSchema],
   balance: { type: Number, default: 0 },
 
   isBlocked: { type: Boolean, default: false },

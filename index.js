@@ -324,14 +324,14 @@ app.put("/admin/user/:id/unfreeze", async (req, res) => {
 });
 
 
-app.get("/admin/users", async (req, res) => {
-  try {
-    const users = await EmployeeeModel.find();
-    res.json(users);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// app.get("/admin/users", async (req, res) => {
+//   try {
+//     const users = await EmployeeeModel.find();
+//     res.json(users);
+//   } catch (err) {
+//     res.status(500).json({ error: err.message });
+//   }
+// });
 
 
 app.put("/admin/user/:id/savings/lock", async (req, res) => {
@@ -1451,7 +1451,7 @@ app.post("/user/:id/fixed/create", freezeGuardByUserId, async (req, res) => {
     const maturityDate = new Date(startDate);
     maturityDate.setMonth(maturityDate.getMonth() + t);
 
-    const expectedInterest = a * rate * (t / 12);
+    const expectedInterest = a * rate;
     const totalAtMaturity = a + expectedInterest;
 
     user.balance -= a;
@@ -1558,6 +1558,49 @@ app.post("/admin/user/:id/fixed/reset", async (req, res) => {
       fixedDeposits: [],
     });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+app.get("/admin/users/fixed-deposits", async (req, res) => {
+  try {
+    const users = await EmployeeeModel.find().lean();
+
+    const result = users.map((user) => {
+      const fixedDeposits = (user.fixedDeposits || []).map((fd) => ({
+        _id: fd._id,
+        amount: Number(fd.amount || 0),
+        termMonths: Number(fd.termMonths || 0),
+        rate: Number(fd.rate || 0),
+        startDate: fd.startDate,
+        maturityDate: fd.maturityDate,
+        expectedInterest: Number(fd.expectedInterest || 0),
+        totalAtMaturity: Number(fd.totalAtMaturity || 0),
+        status: fd.status,
+      }));
+
+      const totalLocked = fixedDeposits
+        .filter((fd) => fd.status === "active")
+        .reduce((sum, fd) => sum + fd.amount, 0);
+
+      const totalInterest = fixedDeposits
+        .filter((fd) => fd.status === "active")
+        .reduce((sum, fd) => sum + fd.expectedInterest, 0);
+
+      return {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        totalLocked,
+        totalInterest,
+        fixedDeposits,
+      };
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error("ADMIN FIXED DEPOSITS ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
