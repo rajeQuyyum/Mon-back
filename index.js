@@ -1502,16 +1502,30 @@ app.post("/user/:id/fixed/withdraw/:fixedId", freezeGuardByUserId, async (req, r
     }
 
     const now = new Date();
-    if (now < new Date(fd.maturityDate)) {
-      return res.status(423).json({
-        status: "locked",
-        message: "Fixed deposit not matured yet.",
-      });
+    const matured = now >= new Date(fd.maturityDate);
+
+    let payout = 0;
+
+    if (matured) {
+      payout = Number(fd.totalAtMaturity || 0);
+    } else {
+      if (!fd.earlyWithdrawAllowed) {
+        return res.status(423).json({
+          status: "locked",
+          message: "Fixed deposit not matured yet.",
+        });
+      }
+
+      payout = Number(fd.earlyWithdrawalAmount || 0);
+
+      if (payout <= 0) {
+        return res.status(400).json({ error: "Early withdrawal amount is invalid" });
+      }
     }
 
-    // pay principal + interest
-    user.balance = Number(user.balance || 0) + Number(fd.totalAtMaturity || 0);
+    user.balance = Number(user.balance || 0) + payout;
     fd.status = "withdrawn";
+    fd.withdrawnAt = new Date();
 
     await user.save();
 
@@ -1522,12 +1536,13 @@ app.post("/user/:id/fixed/withdraw/:fixedId", freezeGuardByUserId, async (req, r
       success: true,
       balance: user.balance,
       fixedDeposits: user.fixedDeposits,
+      withdrawnAmount: payout,
+      withdrawalType: matured ? "matured" : "early",
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 app.post("/admin/user/:id/fixed/reset", async (req, res) => {
   try {
@@ -1558,6 +1573,50 @@ app.post("/admin/user/:id/fixed/reset", async (req, res) => {
       fixedDeposits: [],
     });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+app.post("/admin/user/:id/fixed/:fixedId/allow-early-withdraw", async (req, res) => {
+  try {
+    const user = await EmployeeeModel.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const fd = user.fixedDeposits.id(req.params.fixedId);
+    if (!fd) return res.status(404).json({ error: "Fixed deposit not found" });
+
+    if (fd.status !== "active") {
+      return res.status(400).json({ error: "Fixed deposit is not active" });
+    }
+
+    const penaltyRate =
+      req.body.penaltyRate !== undefined
+        ? Number(req.body.penaltyRate)
+        : 0.1;
+
+    if (penaltyRate < 0 || penaltyRate > 1) {
+      return res.status(400).json({ error: "Penalty rate must be between 0 and 1" });
+    }
+
+    const penaltyAmount = Number(fd.amount || 0) * penaltyRate;
+    const earlyWithdrawalAmount = Number(fd.amount || 0) - penaltyAmount;
+
+    fd.earlyWithdrawAllowed = true;
+    fd.earlyWithdrawalPenaltyRate = penaltyRate;
+    fd.earlyWithdrawalAmount = earlyWithdrawalAmount;
+
+    await user.save();
+
+    io.to(user.email).emit("fixedUpdated", { fixedDeposits: user.fixedDeposits });
+
+    res.json({
+      success: true,
+      message: "Early withdrawal enabled successfully",
+      fixedDeposit: fd,
+    });
+  } catch (err) {
+    console.error("ALLOW EARLY WITHDRAW ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1601,6 +1660,37 @@ app.get("/admin/users/fixed-deposits", async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error("ADMIN FIXED DEPOSITS ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+app.delete("/admin/user/:id/fixed/:fixedId", async (req, res) => {
+  try {
+    const user = await EmployeeeModel.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const fd = user.fixedDeposits.id(req.params.fixedId);
+    if (!fd) return res.status(404).json({ error: "Fixed deposit not found" });
+
+    if (fd.status !== "withdrawn") {
+      return res.status(400).json({
+        error: "Only withdrawn fixed deposits can be deleted",
+      });
+    }
+
+    fd.deleteOne();
+    await user.save();
+
+    io.to(user.email).emit("fixedUpdated", { fixedDeposits: user.fixedDeposits });
+
+    res.json({
+      success: true,
+      message: "Withdrawn fixed deposit deleted successfully",
+      fixedDeposits: user.fixedDeposits,
+    });
+  } catch (err) {
+    console.error("DELETE WITHDRAWN FIXED ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });

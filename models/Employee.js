@@ -15,18 +15,20 @@ const FixedDepositSchema = new mongoose.Schema(
     },
     expectedInterest: { type: Number, default: 0 },
     totalAtMaturity: { type: Number, default: 0 },
+
+    earlyWithdrawAllowed: { type: Boolean, default: false },
+    earlyWithdrawalPenaltyRate: { type: Number, default: 0.1 },
+    earlyWithdrawalAmount: { type: Number, default: 0 },
+    withdrawnAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
-
 
 const EmployeeSchema = new mongoose.Schema({
   name: String,
   email: String,
   password: String,
-  fixedDeposits: [FixedDepositSchema],
   balance: { type: Number, default: 0 },
-
   isBlocked: { type: Boolean, default: false },
   isFrozen: { type: Boolean, default: false },
 
